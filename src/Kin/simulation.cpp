@@ -145,7 +145,7 @@ Simulation::Simulation(Configuration& _C, Engine _engine, int _verbose)
 
 Simulation::~Simulation() {
   if(verbose>0) {
-    LOG(0) <<"shutting down Simulation";
+    LOG(0) <<"shutting down Simulation BC";
   }
 }
 
@@ -216,6 +216,8 @@ void Simulation::step(const arr& u_control, double tau, ControlMode u_mode) {
     self->physx->step(tau);
     self->physx->pullDynamicStates(C, self->frameVelocities);
     self->physx->pullMotorStates(C, self->qDot);  //why not also pull the motor states?
+    self->physx->printAllForces();  //BUNU KULLAN
+    self->physx->printCollisionForces(C);  //BUNU KULLAN
   } else if(engine==_bullet) {
     self->bullet->pushKinematicStates(C);
     if(self->bullet->opt().multiBody) {
@@ -426,6 +428,7 @@ void Simulation::getState(arr& frameState, arr& q, arr& frameVelocities, arr& qD
   if(engine==_physx) {
     self->physx->pullDynamicStates(C, frameVelocities);
     self->physx->pullMotorStates(C, qDot);
+    //self->physx->printAllForces();  // bunu KULLANMA
   } else if(engine==_bullet) {
     self->bullet->pullDynamicStates(C, frameVelocities);
     if(!!q) NIY;
@@ -436,6 +439,7 @@ void Simulation::getState(arr& frameState, arr& q, arr& frameVelocities, arr& qD
 
 void Simulation::setState(const arr& frameState, const arr& q, const arr& frameVelocities, const arr& qDot) {
   C.setFrameState(frameState);
+  //self->physx->printAllForces();  // bunu KULLANMA
   if(!!q && q.N) C.setJointState(q);
   pushConfigurationToSimulator(frameVelocities, qDot);
   if(engine==_physx) {

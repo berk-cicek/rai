@@ -26,12 +26,81 @@
 #include "kin_physx.h"
 #include "frame.h"
 #include "../Gui/opengl.h"
+#include <iomanip>
+
 
 //===========================================================================
 
 constexpr float px_gravity = -9.81f;
 using namespace physx;
 
+//===========================================================================
+// class ContactReportCallback : public PxSimulationEventCallback {
+// public:
+//     void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override {
+//         for (PxU32 i = 0; i < nbPairs; ++i) {
+//             const PxContactPair& cp = pairs[i];
+//             // Check if the contact involves the robot gripper and the object with frame ID=2
+//             if ((pairHeader.actors[0]->userData == reinterpret_cast<void*>(2) || 
+//                  pairHeader.actors[1]->userData == reinterpret_cast<void*>(2))) {
+                
+//                 PxContactPairPoint contactPoints[10];
+//                 PxU32 nbContactPoints = cp.extractContacts(contactPoints, 10);
+//                 for (PxU32 j = 0; j < nbContactPoints; ++j) {
+//                     PxVec3 contactForce = contactPoints[j].impulse / contactPoints[j].separation;
+//                     std::cout << "Contact Force: (" << contactForce.x << ", " << contactForce.y << ", " << contactForce.z << ")" << std::endl;
+//                 }
+//             }
+//         }
+//     }
+
+//     // Other methods required by PxSimulationEventCallback
+//     void onConstraintBreak(PxConstraintInfo* constraints, PxU32 count) override {}
+//     void onWake(PxActor** actors, PxU32 count) override {}
+//     void onSleep(PxActor** actors, PxU32 count) override {}
+//     void onTrigger(PxTriggerPair* pairs, PxU32 count) override {}
+//     void onAdvance(const PxRigidBody* const* bodyBuffer, const PxTransform* poseBuffer, const PxU32 count) override {}
+// };
+
+//Custom contact callback class
+
+class MyContactCallback : public PxSimulationEventCallback {
+public:
+    std::vector<PxContactPairPoint> contactPoints;
+
+    virtual void onContact(const PxContactPairHeader& pairHeader, const PxContactPair* pairs, PxU32 nbPairs) override {
+        contactPoints.clear();  // Clear previous contact points
+        printf("HERRRRRRRRRRRRRRRREEEEEEEEEEE.\n");
+
+        for (PxU32 i = 0; i < nbPairs; i++) {
+            const PxContactPair& cp = pairs[i];
+
+            if (cp.events & PxPairFlag::eNOTIFY_TOUCH_FOUND) {
+                PxContactStreamIterator iter(cp.contactPatches, cp.contactPoints, nullptr, cp.contactCount, 0);
+                while (iter.hasNextPatch()) {
+                    iter.nextPatch();
+                    while (iter.hasNextContact()) {
+                        iter.nextContact();
+
+                        PxContactPairPoint point;
+                        point.position = iter.getContactPoint();
+                        
+                        // Since we don't have getNormal(), let's assume the impulse is applied directly along the contact point (not realistic but a placeholder)
+                        point.impulse = PxVec3(iter.getSeparation());  // This is not realistic, but serves as an example
+
+                        contactPoints.push_back(point);
+                    }
+                }
+            }
+        }
+    }
+
+    virtual void onTrigger(PxTriggerPair*, PxU32) override {}
+    virtual void onConstraintBreak(PxConstraintInfo*, PxU32) override {}
+    virtual void onWake(PxActor**, PxU32) override {}
+    virtual void onSleep(PxActor**, PxU32) override {}
+    virtual void onAdvance(const PxRigidBody* const*, const PxTransform*, PxU32) override {printf("HERRRRRRRRRRRRRRRREEEEEEEEEEE.\n");}
+};
 //===========================================================================
 
 void PxTrans2raiTrans(rai::Transformation& f, const PxTransform& pose) {
@@ -120,9 +189,12 @@ struct PhysXInterface_self {
     PxDefaultErrorCallback gDefaultErrorCallback;
     PxDefaultAllocator gDefaultAllocatorCallback;
     PxSimulationFilterShader gDefaultFilterShader=PxDefaultSimulationFilterShader;
+    //ContactReportCallback contactCallback;
   };
 
   static Engine* core;
+  
+  MyContactCallback* contactCallback;  // Add this line
 
   ~PhysXInterface_self() {
     //  self->mMaterial
@@ -169,9 +241,16 @@ struct PhysXInterface_self {
   void prepareLinkShapes(ShapeL& shapes, rai::BodyType& type, rai::Frame* f);
   void addSingleShape(PxRigidActor* actor, rai::Frame* f, rai::Shape* s);
   void addShapesAndInertia(PxRigidBody* actor, ShapeL& shapes, rai::BodyType type, rai::Frame* f);
+  void printCollisionForces(const rai::Configuration& C);
 };
 
 PhysXInterface_self::Engine* PhysXInterface_self::core = 0;
+
+//===========================================================================
+
+
+
+//===========================================================================
 
 //===========================================================================
 
@@ -199,6 +278,7 @@ void PhysXInterface_self::initPhysics() {
   //sceneDesc.broadPhaseType = PxBroadPhaseType::eGPU;
   sceneDesc.gpuMaxNumPartitions = 8;
   sceneDesc.solverType = PxSolverType::eTGS;
+  sceneDesc.filterShader = PxDefaultSimulationFilterShader;
 
   if(!sceneDesc.cpuDispatcher) {
     PxDefaultCpuDispatcher* mCpuDispatcher = PxDefaultCpuDispatcherCreate(1);
@@ -211,10 +291,22 @@ void PhysXInterface_self::initPhysics() {
     sceneDesc.filterShader  = core->gDefaultFilterShader;
   }
 
+  //sceneDesc.simulationEventCallback = &core->contactCallback;
+  // MyContactReportCallback* contactCallback = new MyContactReportCallback();
+  // //self->gScene->setSimulationEventCallback(new MyContactReportCallback());
+  // gScene->setSimulationEventCallback(contactCallback);
   gScene = core->mPhysics->createScene(sceneDesc);
   if(!gScene) {
     cerr << "createScene failed!" << endl;
   }
+
+  cout << "START FUNCTION FOR PHYSXXXXXXXXXXXXXX" <<endl;
+  cout << "START FUNCTION FOR PHYSXXXXXXXXXXXXXX" <<endl;
+  // Set the custom contact callback
+  contactCallback = new MyContactCallback();
+  //MyContactCallback* myContactCallback = new MyContactCallback();
+  gScene->setSimulationEventCallback(contactCallback);
+  
 
   gScene->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0);
   gScene->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_SHAPES, 1.0f);
@@ -258,27 +350,44 @@ void PhysXInterface_self::addLink(rai::Frame* f) {
     LOG(0) <<str;
   }
 
-  //-- create a PhysX actor
-  PxRigidDynamic* actor=nullptr;
-  if(type==rai::BT_static) {
-    actor = (PxRigidDynamic*) core->mPhysics->createRigidStatic(conv_Transformation2PxTrans(f->ensure_X()));
-  } else if(type==rai::BT_dynamic) {
+ //-- create a PhysX actor
+ PxRigidDynamic* actor = nullptr;
+
+ if (type == rai::BT_static) {
+    actor = (PxRigidDynamic*)core->mPhysics->createRigidStatic(conv_Transformation2PxTrans(f->ensure_X()));
+ } else if (type == rai::BT_dynamic) {
     actor = core->mPhysics->createRigidDynamic(conv_Transformation2PxTrans(f->ensure_X()));
-  } else if(type==rai::BT_kinematic) {
+ } else if (type == rai::BT_kinematic) {
     actor = core->mPhysics->createRigidDynamic(conv_Transformation2PxTrans(f->ensure_X()));
     actor->setRigidBodyFlag(PxRigidBodyFlag::eKINEMATIC, true);
-  } else NIY;
-  CHECK(actor, "create actor failed!");
+ } else {
+    NIY;
+ }
 
-  addShapesAndInertia(actor, shapes, type, f);
+ CHECK(actor, "create actor failed!");
 
-  double angularDamping = opt.angularDamping;
-  if(f->ats && f->ats->find<double>("angularDamping")) {
+ addShapesAndInertia(actor, shapes, type, f);
+
+ // Set the simulation shape flag and filter data for collision detection
+ for (PxU32 i = 0; i < actor->getNbShapes(); i++) {
+    PxShape* shape;
+    actor->getShapes(&shape, 1, i);
+    shape->setFlag(PxShapeFlag::eSIMULATION_SHAPE, true);
+
+    // Set default filter data (modify as needed for your scenario)
+    PxFilterData filterData;
+    filterData.word0 = 1; // Word0 for collision group
+    filterData.word1 = 1; // Word1 for collision mask (who it collides with)
+    shape->setSimulationFilterData(filterData);
+ }
+
+ double angularDamping = opt.angularDamping;
+ if (f->ats && f->ats->find<double>("angularDamping")) {
     angularDamping = f->ats->get<double>("angularDamping");
-  }
-  actor->setAngularDamping(angularDamping);
+ }
+ actor->setAngularDamping(angularDamping);
 
-  gScene->addActor(*actor);
+ gScene->addActor(*actor);
 
   actor->userData = f;
   CHECK(!actors(f->ID), "you already added a frame with ID" <<f->ID);
@@ -953,6 +1062,180 @@ void PhysXInterface::pullMotorStates(rai::Configuration& C, arr& qDot) {
   }
   C.setJointState(q);
 }
+
+// void PhysXInterface::printAllForces() {
+// //void printAllForces() {
+//   extern PxScene* gScene; // If it is declared in another file
+//   // Ensure the scene exists
+//   if (!gScene) {
+//     std::cerr << "Scene not initialized!" << std::endl;
+//     return;
+//   }
+
+//   std::vector<PxRigidActor*> actors;
+//   gScene->getActors(PxActorTypeFlag::eRIGID_DYNAMIC, reinterpret_cast<PxActor**>(actors.data()), actors.size());
+
+//   // Retrieve force and torque correctly
+//   for (PxRigidActor* actor : actors) {
+//       PxRigidBody* body = actor->is<PxRigidBody>();
+//       if (body) {
+//           // Assuming getForce() and getTorque() methods do not exist
+//           // Otherwise, replace these lines with actual PhysX API calls for forces and torques
+//           PxVec3 position = body->getGlobalPose().p; // Example: get position
+//           PxQuat orientation = body->getGlobalPose().q; // Example: get orientation
+
+//           // Print position and orientation (not force and torque)
+//           std::cout << "Position: " << position.x << ", " << position.y << ", " << position.z << std::endl;
+//           std::cout << "Orientation: " << orientation.x << ", " << orientation.y << ", " << orientation.z << ", " << orientation.w << std::endl;
+//       }
+//   }
+
+void PhysXInterface_self::printCollisionForces(const rai::Configuration& C) {
+
+    // Print the position of the box after the simulation step
+    // Assuming you know the ID of the box's frame
+    int boxFrameID = -1;
+    for (rai::Frame* f : C.frames) {
+        if (f->name == "box") { // Replace "box" with the actual name of the frame
+            boxFrameID = f->ID;
+            break;
+        }
+    }
+
+    // Check if the box actor exists
+    if ((int)actors.N > boxFrameID && actors(boxFrameID)) {
+        PxRigidActor* boxActor = actors(boxFrameID);
+        if (boxActor) {
+            PxTransform boxPose = boxActor->getGlobalPose();
+            printf("Box Position: (%f, %f, %f)\n", boxPose.p.x, boxPose.p.y, boxPose.p.z);
+
+            PxRigidDynamic* dynamicBoxActor = boxActor->is<PxRigidDynamic>();
+            if (dynamicBoxActor) {
+                // Get the linear velocity
+                PxVec3 linearVelocity = dynamicBoxActor->getLinearVelocity();
+
+                // Calculate acceleration (assuming no damping for simplicity)
+                PxVec3 linearAcceleration = linearVelocity / dynamicBoxActor->getMass();
+
+                // Get net force (F = m * a)
+                PxVec3 netForce = dynamicBoxActor->getMass() * linearAcceleration;
+
+                // Print net force and acceleration
+                printf("Box Net Force: (%f, %f, %f)\n", netForce.x, netForce.y, netForce.z);
+                printf("Box Acceleration: (%f, %f, %f)\n", linearAcceleration.x, linearAcceleration.y, linearAcceleration.z);
+            }
+        }
+    }
+
+    if (contactCallback->contactPoints.empty()) {
+        printf("No contacts detected in this simulation step.\n");
+    } else {
+        for (const PxContactPairPoint& cp : contactCallback->contactPoints) {
+            printf("Contact Point: (%f, %f, %f)\n", cp.position.x, cp.position.y, cp.position.z);
+            printf("Contact Impulse: (%f, %f, %f)\n", cp.impulse.x, cp.impulse.y, cp.impulse.z);
+        }
+    }
+}
+
+
+void PhysXInterface::printCollisionForces(const rai::Configuration& C) {
+    if (self) {
+        self->printCollisionForces(C);
+    }
+}
+
+void PhysXInterface::printAllForces() {
+  //std::cout << "3 2 1 ___ BASSSSSSSSSSSS " << std::endl;
+  if (!self->gScene) {
+    //std::cerr << "Scene is not initialized!" << std::endl;
+    return;
+  }
+
+  // Check the size of actors
+  //std::cout << "Number of actors: " << self->actors.sizeT << std::endl;
+
+// PRINTING THE NAME OF EACH ACTORS AND FRAME IDs
+
+
+  // for(PxRigidActor* a: self->actors) {
+  //     if(a) {
+  //         rai::Frame* f = (rai::Frame*)a->userData;
+  //         if (f) { // Check if the cast was successful
+  //             PxTransform pose = a->getGlobalPose();
+  //             std::cout << "Frame ID: " << f->ID << " Position: (" << pose.p.x << ", " << pose.p.y << ", " << pose.p.z << ")" << std::endl;
+  //             //std::cout << "Frame ID: " << f->ID << std::endl;
+  //         } else {
+  //             std::cout << "Error: Invalid cast to rai::Frame" << std::endl;
+  //         }
+  //     }
+  // }
+
+// PRINTING THE APPROXIMATE NET FORCE OF EACH ACTORS AND FRAME IDs
+for(PxRigidActor* a: self->actors) {
+    if(a) {
+        rai::Frame* f = (rai::Frame*)a->userData;
+        if (f) {
+            PxRigidDynamic* dynamicActor = a->is<PxRigidDynamic>();
+            if (dynamicActor) {
+                PxVec3 linearAcceleration = dynamicActor->getLinearVelocity() - dynamicActor->getLinearVelocity() * dynamicActor->getLinearDamping();
+                PxVec3 approximateForce = linearAcceleration * dynamicActor->getMass();
+                //std::cout << std::fixed << std::setprecision(4); // Set precision to 4 decimal
+                //std::cout << "Frame ID: " << f->ID << " Approximate Force: (" << approximateForce.x << ", " << approximateForce.y << ", " << approximateForce.z << ")" << std::endl;
+            } else {
+                //std::cout << "Actor is not dynamic" << ",   "<< "Frame ID: " << f->ID << std::endl;
+                //std::cout << "Actor Name: " << (a->getName() ? a->getName() : "Unnamed") << std::endl;
+            }
+        } else {
+            std::cout << "Error: Invalid cast to rai::Frame" << std::endl;
+        }
+    }
+}
+
+
+  // // Iterate through the actors in the scene
+  // for (PxRigidActor* actor : self->actors) {
+  //   const char* actorName = actor->getName();
+  //   if (actorName) {
+  //     std::cout << "Actor Name: " << actorName << std::endl;
+  //   } else {
+  //     std::cout << "Actor Name: (Unnamed)" << std::endl;
+  //   }
+  //   std::cout << "BASSSSSSSSSSSS " << std::endl;
+
+  //   PxRigidBody* body = actor->is<PxRigidBody>();
+  //   if (body) {
+  //     // Example: Get orientation as a substitute for torque
+  //     // PxVec3 force = body->getGlobalPose().p; // Assuming you want the position as a substitute
+  //     // PxVec3 torque = body->getGlobalPose().q; // Assuming you want the orientation as a substitute
+  //     // std::cout << "Force: " << force.x << ", " << force.y << ", " << force.z << std::endl;
+  //     // std::cout << "Torque: " << torque.x << ", " << torque.y << ", " << torque.z << std::endl;
+  //   }
+  // }
+}
+
+
+  // // Iterate through each actor in the scene
+  // for (PxRigidActor* actor : actors) {
+  //   if (!actor) continue; // Skip if actor is null
+
+  //   // Check if the actor is a dynamic body
+  //   PxRigidBody* body = actor->is<PxRigidBody>();
+  //   if (body) {
+  //     // Get the force and torque applied to the body
+  //     PxVec3 force = body->getForce(PxForceMode::eFORCE);
+  //     PxVec3 torque = body->getTorque(PxForceMode::eFORCE);
+
+  //     // Convert to a readable format
+  //     arr forceArr = conv_PxVec3_arr(force);
+  //     arr torqueArr = conv_PxVec3_arr(torque);
+
+  //     // Print the force and torque
+  //     std::cout << "Actor ID: " << actor->getName() << std::endl;
+  //     std::cout << "  Force: [" << forceArr(0) << ", " << forceArr(1) << ", " << forceArr(2) << "]" << std::endl;
+  //     std::cout << "  Torque: [" << torqueArr(0) << ", " << torqueArr(1) << ", " << torqueArr(2) << "]" << std::endl;
+  //   }
+  // }
+//}
 
 void PhysXInterface::pushFrameStates(const rai::Configuration& C, const arr& frameVelocities, bool onlyKinematic) {
   // frame states (including of dynamic, e.g. falling, objects)

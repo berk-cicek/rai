@@ -40,6 +40,10 @@ struct PhysXInterface : GLDrawer {
   void pushMotorStates(const rai::Configuration& C, bool setInstantly=false, const arr& qDot=NoArr);
   void pullMotorStates(rai::Configuration& C, arr& qDot);
 
+  void printAllForces();
+  
+  void printCollisionForces(const rai::Configuration& C);
+
   void changeObjectType(rai::Frame* f, int type);
   void addJoint(rai::Joint* j);
   void removeJoint(rai::Joint* j);
